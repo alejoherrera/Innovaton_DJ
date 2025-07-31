@@ -108,10 +108,9 @@ resumen_por_pdf.json
 ### 🧹 Limpieza opcional
 
 - Si venías de usar transformers, torch, u otras dependencias de modelos locales, podés desinstalarlas así:
-
+```
 pip uninstall transformers peft accelerate bitsandbytes datasets scikit-learn torch pandas numpy
-
-
+```
 ### 💬 Créditos
 
 - Desarrollado como sistema de apoyo a la División Jurídica para análisis de resoluciones en lenguaje natural, utilizando inteligencia artificial generativa.
