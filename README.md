@@ -16,13 +16,14 @@ Este proyecto permite analizar resoluciones jurídicas en formato PDF y extraer 
 
 ### 1. Crear el proyecto
 
+```
 juridica_model/
 ├── insumos/             # Carpeta con los archivos PDF
 ├── .env                 # Archivo con tu API Key
 ├── juridica_gemini.py   # Script principal
 ├── resumen_por_pdf.json # Salida generada
 └── requirements.txt     # Dependencias del proyecto.
-
+```
 
 ### 2. Crear entorno virtual
 
@@ -72,7 +73,7 @@ python juridica_gemini.py
 resumen_por_pdf.json
 
 - La estructura esperada es:
-
+```
 [
   {
     "file_name": "resolucion_01.pdf",
@@ -84,7 +85,7 @@ resumen_por_pdf.json
     }
   }
 ]
-
+```
 ### Preguntas
 
 - El sistema extrae las siguientes:
