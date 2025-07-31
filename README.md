@@ -28,19 +28,19 @@ juridica_model/
 ### 2. Crear entorno virtual
 
 - Desde la terminal en la raíz del proyecto, crea o activa un ambiente virtal para la ejecución de código de python.
-
+```
 python -m venv venv
-
+```
 - Activa ese entorno con el siguiente código (Windows)
-
+```
 .\venv\Scripts\Activate
-
+```
 ### 3. Crear un archivo .env, para almacenar las variables de entorno. 
 
 - En este caso la API de Gemini. La clave se obtiene desde: https://makersuite.google.com/app/apikey
-
+```
 GEMINI_API_KEY=tu_clave_aquí
-
+```
 ### 4. Instalar dependencias
 
 - Crea un archivo requirements.txt con lo siguiente:
@@ -51,21 +51,21 @@ PyPDF2
 tqdm
 
 - Después instala esas dependencias con el siguiente comando:
-
+```
 pip install -r requirements.txt
-
+```
 - Seguidamente se instalan las dependencias:
-
+```
 pip install google-generativeai python-dotenv PyPDF2 tqdm
-
+```
 ## 📦 Uso
 
 ### 1. Ejecución
 
 - Ejecuta el proyecto con el siguiente comando:
-
+```
 python juridica_gemini.py
-
+```
 ### 2. Información esperada
 
 - Se espera que el proyecto genere un archivo en formato .json con el resumen del análisis en un archivo llamado:
