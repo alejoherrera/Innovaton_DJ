@@ -1,1 +1,19 @@
-juridica_model/pares_QA.json
+# Credenciales
+service_account.json
+.env
+
+# Datos y artefactos
+pdfs/
+chroma_index/
+
+# Entorno virtual
+venv/
+.venv/
+
+# Byte-code / cache
+__pycache__/
+*.py[cod]
+
+# Archivos temporales
+*.log
+*.tmp

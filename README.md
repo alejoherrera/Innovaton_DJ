@@ -1,115 +1,131 @@
-# 🧠 Extractor de Resoluciones Jurídicas con Gemini
+# 🧠 RAG | Resoluciones de Acto Final – División Jurídica CGR
 
-Este proyecto permite analizar resoluciones jurídicas en formato PDF y extraer información clave (número de resolución, persona investigada, motivo, etc.) utilizando la API de **Gemini Flash o Gemini Pro** de Google.
+Este proyecto convierte el repositorio de actos finales en un sistema RAG (Retrieval-Augmented Generation) que:
 
----
+- Sincroniza los PDF desde una carpeta oficial de Google Drive.
+
+- Indice su contenido en ChromaDB usando embeddings de Gemini.
+
+- Expone un chat Gradio (“Lexi”) con respuestas amistosas y precisas para el equipo jurídico.
+
+
+## ✅ Estructura del repositorio
+
+```
+innovaton_dj/
+│
+├─ juridica_model/
+│   ├─ app.py                 # Interfaz Gradio (Lexi)
+│   ├─ ingest.py              # Sincroniza Drive + indexa en Chroma
+│   ├─ rag_chain.py           # Lógica RAG (búsqueda + generación)
+│   ├─ drive_utils.py         # Funciones de descarga Drive
+│   ├─ pdfs/                  # PDFs descargados   (git-ignored)
+│   ├─ chroma_index/          # Base vectorial     (git-ignored)
+│   ├─ static/
+│   │   └─ Logotipo-CGR-blanco-transp.png
+│   └─ requirements.txt
+│
+├─ .env                       # GEMINI_API_KEY, DRIVE_FOLDER_ID …
+├─ service_account.json       # Credenciales de cuenta de servicio
+└─ .gitignore
+
+```
 
 ## ✅ Requisitos
 
-- Python 3.10 o superior
-- Cuenta en [https://makersuite.google.com/](https://makersuite.google.com/) para obtener una clave de API
-- VS Code (opcional pero recomendado)
-
----
-
-## 📦 Instalación y configuración
-
-### 1. Crear el proyecto
-
 ```
-juridica_model/
-├── insumos/             # Carpeta con los archivos PDF
-├── .env                 # Archivo con tu API Key
-├── juridica_gemini.py   # Script principal
-├── resumen_por_pdf.json # Salida generada
-└── requirements.txt     # Dependencias del proyecto.
+| Herramienta       | Versión recomendada                                          |
+| ----------------- | ------------------------------------------------------------ |
+| Python            | 3.10 o superior                                              |
+| Google Gemini API | Clave de Makersuite/AI Studio                                |
+| Google Cloud      | Cuenta de servicio con acceso *read-only* a la carpeta Drive |
+| Google Drive API  | Habilitada en el mismo proyecto                              |
+| (Opc.) VS Code    | Para edición y virtualenv                                    |
 ```
 
-### 2. Crear entorno virtual
+## 📦 Instalación rápida
 
-- Desde la terminal en la raíz del proyecto, crea o activa un ambiente virtal para la ejecución de código de python.
+# 1. Clona el repo y entra
 ```
-python -m venv venv
+git clone <url> innovaton_dj
+cd innovaton_dj/juridica_model
 ```
-- Activa ese entorno con el siguiente código (Windows)
+# 2. Crea y activa entorno virtual
 ```
-.\venv\Scripts\Activate
+python -m venv ../venv
+../venv/Scripts/activate        # Windows
+# source ../venv/bin/activate   # macOS / Linux
 ```
-### 3. Crear un archivo .env, para almacenar las variables de entorno. 
-
-- En este caso la API de Gemini. La clave se obtiene desde: https://makersuite.google.com/app/apikey
-```
-GEMINI_API_KEY=tu_clave_aquí
-```
-### 4. Instalar dependencias
-
-- Crea un archivo requirements.txt con lo siguiente:
-
-google-generativeai
-python-dotenv
-PyPDF2
-tqdm
-
-- Después instala esas dependencias con el siguiente comando:
+# 3. Instala dependencias
 ```
 pip install -r requirements.txt
 ```
-- Seguidamente se instalan las dependencias:
+# 4. Variables de entorno (.env en la raíz)
 ```
-pip install google-generativeai python-dotenv PyPDF2 tqdm
+GEMINI_API_KEY=tu_clave_API
+DRIVE_FOLDER_ID=id_folder_drive_url
 ```
-## 📦 Uso
+- Nota: service_account.json debe estar en juridica_model/ y la carpeta de Drive compartida con esa cuenta.
 
-### 1. Ejecución
+### 1. Uso diario
 
-- Ejecuta el proyecto con el siguiente comando:
+# 1. Descargar nuevos PDF + re-indexar
 ```
-python juridica_gemini.py
+python ingest.py
 ```
-### 2. Información esperada
-
-- Se espera que el proyecto genere un archivo en formato .json con el resumen del análisis en un archivo llamado:
-
-resumen_por_pdf.json
-
-- La estructura esperada es:
+# 2. Levantar la interfaz Lexi
 ```
-[
-  {
-    "file_name": "resolucion_01.pdf",
-    "respuestas": {
-      "numero_resolucion": "Nº 18915-2024",
-      "numero_interno": "DJ-234",
-      "fecha_completa": "12 de mayo de 2024",
-      ...
-    }
-  }
-]
+python app.py
 ```
-### Preguntas
 
-- El sistema extrae las siguientes:
+- Abre http://localhost:7860 y pregunta, por ejemplo:
+```
+¿Cuál es la sanción impuesta en el acto final N.º 07685-2025?
+```
+- Lexi mostrará la ficha completa (con la sanción “Separación del cargo público sin responsabilidad patronal”, etc.) y luego responderá preguntas de seguimiento sin repetir la ficha.
 
-- ¿Cuál es el número de la resolución final?
+### 2. Archivos ignorados (.gitignore)
 
-- ¿Cuál es el número interno (DJ)?
 
-- ¿Cuál es el número del procedimiento administrativo?
+# Credenciales
+```
+.env
+service_account.json
+```
+# Datos y artefactos
+```
+pdfs/
+chroma_index/
+```
+# Entorno virtual
+```
+venv/
+.venv/
+```
+# Byte-code
+```
+__pycache__/
+*.py[cod]
+```
 
-- ¿En qué fecha se emitió la resolución?
+### 3. Solución de problemas
 
-- ¿Contra quién se siguió el procedimiento administrativo?
+```
+| Error                               | Causa                                                     | Solución                                                               |
+| ----------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `404 File not found` en `list_pdfs` | `DRIVE_FOLDER_ID` incorrecto o carpeta no compartida      | Verifique el ID y comparta la carpeta con la cuenta de servicio        |
+| `429 ResourceExhausted`             | Se agotaron las 50 peticiones gratuitas diarias de Gemini | Espere al día siguiente, cambie a `gemini-pro`, o habilite facturación |
+| Fuentes negras en el chat           | Tema oscuro sobreescribe estilos                          | El proyecto fuerza tema claro y CSS personalizados                     |
 
-- ¿Cuál fue el motivo del procedimiento sancionador?
-
-- ¿Cuál fue el resultado o la sanción impuesta?
-
+```
 
 ### 🧹 Limpieza opcional
 
 - Si venías de usar transformers, torch, u otras dependencias de modelos locales, podés desinstalarlas así:
 ```
-pip uninstall transformers peft accelerate bitsandbytes datasets scikit-learn torch pandas numpy
+pip uninstall transformers peft accelerate bitsandbytes datasets \
+               torch scikit-learn pandas numpy
+
 ```
 ### 💬 Créditos
 
