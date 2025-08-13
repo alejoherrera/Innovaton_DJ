@@ -13,12 +13,17 @@ def _drive():
         SERVICE_ACCOUNT_FILE, scopes=SCOPES)
     return build("drive", "v3", credentials=creds)
 
+# drive_utils.py
 def list_pdfs(folder_id: str):
-    """Devuelve una lista de diccionarios {id, name} para cada PDF."""
-    results = _drive().files().list(
-        q=f"'{folder_id}' in parents and mimeType='application/pdf'",
-        fields="files(id,name)").execute()
-    return results.get("files", [])
+    """Devuelve una lista de {id, name} para cada PDF en Mi unidad o Drive compartido."""
+    svc = _drive().files().list(
+        q=f"'{folder_id}' in parents and mimeType='application/pdf' and trashed = false",
+        fields="files(id,name)",
+        includeItemsFromAllDrives=True,   # 🔑 ver items en drives compartidos
+        supportsAllDrives=True,           # 🔑 habilitar soporte de drives compartidos
+        corpora="allDrives"               # 🔑 buscar en todos los “drives”
+    ).execute()
+    return svc.get("files", [])
 
 def download_file(file_id: str, outfile: Path):
     """Descarga el PDF con file_id a la ruta outfile."""

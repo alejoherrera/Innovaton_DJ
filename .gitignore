@@ -4,6 +4,8 @@ service_account.json
 
 # Datos y artefactos
 pdfs/
+pdfs_fallidos/
+pdfs_tmp/
 chroma_index/
 
 # Entorno virtual
