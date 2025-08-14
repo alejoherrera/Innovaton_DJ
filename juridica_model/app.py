@@ -1,20 +1,21 @@
-# app.py (compacto)
-import base64, mimetypes
+import base64
+import mimetypes
 from pathlib import Path
 import gradio as gr
+import os  # ¡Importante! Necesitamos 'os' para el puerto.
 from rag_chain import answer, GOODBYE_RE
 
 ORG = "#284293"  # azul CGR
-LOGO = Path("static/Logotipo-CGR-transp.png")
+# LOGO = Path("static/Logotipo-CGR-transp.png") # Comentado temporalmente para evitar FileNotFoundError
 SUGERENCIA_HTML = (
-"Sugerencia: también puede pedir "
-"lista de resoluciones 2024 o "
-"lista con despido sin responsabilidad."
+    "Sugerencia: también puede pedir "
+    "lista de resoluciones 2024 o "
+    "lista con despido sin responsabilidad."
 )
 
-def to_data_uri(p: Path) -> str:
-    mime = mimetypes.guess_type(p)[0]
-    return f"data:{mime};base64," + base64.b64encode(p.read_bytes()).decode()
+# def to_data_uri(p: Path) -> str:
+#     mime = mimetypes.guess_type(p)[0]
+#     return f"data:{mime};base64," + base64.b64encode(p.read_bytes()).decode()
 
 CSS = f"""
 :root {{ --prim:{ORG}; }}
@@ -37,12 +38,13 @@ def chat_fn(msg, hist):
     try:
         resp, _ = answer(msg, k=10)
     except Exception as e:
+        print(f"Error en chat_fn: {e}") # Añadimos un print para ver el error en los logs
         resp = "⚠️ Ocurrió un error procesando su consulta. Por favor, intente de nuevo."
     hist[-1] = (msg, resp); yield "", hist
 
 with gr.Blocks(css=CSS, title="RAG | Resoluciones DJ") as demo:
     with gr.Column(elem_id="wrap"):
-        gr.HTML(f"<div id='logo'><img src='{to_data_uri(LOGO)}' /></div>")
+        # gr.HTML(f"<div id='logo'><img src='{to_data_uri(LOGO)}' /></div>") # Comentado temporalmente
         gr.Markdown("<h1 id='title'>RAG&nbsp; |&nbsp; Resoluciones de acto final (DJ)</h1>")
         chat = gr.Chatbot(type="tuples", elem_id="chatbot")
         with gr.Row(elem_id="inbox"):
@@ -51,4 +53,6 @@ with gr.Blocks(css=CSS, title="RAG | Resoluciones DJ") as demo:
         txt.submit(chat_fn, [txt, chat], [txt, chat])
 
 if __name__ == "__main__":
+    # Esta es la línea modificada para que funcione en Cloud Run
     demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get('PORT', 8080)))
+
