@@ -10,3 +10,4 @@ pypdf
 tqdm
 gradio
 langchain-community
+google-auth
