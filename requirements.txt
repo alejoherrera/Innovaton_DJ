@@ -6,6 +6,7 @@ google-api-python-client     # Conexión a Drive
 google-auth-oauthlib
 python-dotenv
 PyPDF2
+pypdf
 tqdm
 gradio
 langchain-community
