@@ -15,8 +15,8 @@ from google.api_core.exceptions import ResourceExhausted
 from langchain_community.document_loaders import PyPDFLoader # Usaremos LangChain para cargar el PDF
 from langchain.text_splitter import RecursiveCharacterTextSplitter # y para dividirlo
 
-# Importamos las funciones para descargar desde Drive que ya creamos
-from .drive_utils import download_file_from_drive, list_pdf_files_in_folder
+# Importamos las funciones para descargar desde Drive (import absoluto)
+from drive_utils import download_file_from_drive, list_pdf_files_in_folder
 
 # ── Configuración para Cloud Run ────────────────────────────────
 API_KEY = os.getenv("GEMINI_API_KEY")
