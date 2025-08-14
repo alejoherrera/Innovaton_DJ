@@ -116,7 +116,91 @@ SANCION_KEYS = {
     "apercibimiento": re.compile(r"apercibimiento", re.I),
 }
 
-# --- FUNCIÓN DE INICIALIZACIÓN CON MANEJO ROBUSTO DE ERRORES ---
+def process_new_files(all_pdf_files: List[dict], new_file_names: set):
+    """Procesa solo los archivos nuevos y los agrega a Qdrant."""
+    print("🔄 Procesando archivos nuevos...")
+    
+    new_docs = []
+    new_metadatas = []
+    processed_count = 0
+    
+    for pdf_info in all_pdf_files:
+        pdf_name = pdf_info['name']
+        if pdf_name not in new_file_names:
+            continue  # Saltar archivos ya procesados
+            
+        pdf_id = pdf_info['id']
+        print(f"📄 Procesando nuevo archivo: {pdf_name}")
+        
+        local_pdf_path = download_file_from_drive(pdf_id, pdf_name)
+        if not local_pdf_path or not os.path.exists(local_pdf_path):
+            print(f"⚠️ No se pudo descargar: {pdf_name}")
+            continue
+            
+        if os.path.getsize(local_pdf_path) == 0:
+            print(f"⚠️ Archivo vacío: {pdf_name}")
+            os.remove(local_pdf_path)
+            continue
+        
+        try:
+            loader = PyPDFLoader(local_pdf_path)
+            pages = loader.load_and_split()
+            
+            if not pages:
+                print(f"⚠️ No se pudieron extraer páginas: {pdf_name}")
+                continue
+            
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=150)
+            docs = text_splitter.split_documents(pages)
+            
+            valid_chunks = 0
+            for doc in docs:
+                if doc.page_content.strip():
+                    new_docs.append(doc.page_content)
+                    new_metadatas.append({
+                        "source": pdf_name,
+                        "page": doc.metadata.get("page", 0),
+                        "file_id": pdf_id
+                    })
+                    valid_chunks += 1
+            
+            if valid_chunks > 0:
+                print(f"✅ {pdf_name}: {valid_chunks} chunks nuevos")
+                processed_count += 1
+            
+        except Exception as e:
+            print(f"❌ Error procesando {pdf_name}: {e}")
+        finally:
+            if os.path.exists(local_pdf_path):
+                os.remove(local_pdf_path)
+    
+    # Insertar nuevos documentos en Qdrant
+    if new_docs:
+        print(f"📊 Insertando {len(new_docs)} chunks nuevos en Qdrant...")
+        
+        embeddings = get_embeddings_batch(new_docs)
+        points = []
+        
+        for doc, metadata, embedding in zip(new_docs, new_metadatas, embeddings):
+            points.append(
+                PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector=embedding,
+                    payload={"document": doc, "metadata": metadata}
+                )
+            )
+        
+        # Insertar en lotes
+        batch_size = 100
+        for i in range(0, len(points), batch_size):
+            batch = points[i:i + batch_size]
+            qdrant_client.upsert(collection_name=COLLECTION_NAME, points=batch)
+        
+        print(f"✅ {processed_count} archivos nuevos procesados exitosamente!")
+    else:
+        print("⚠️ No se encontraron chunks válidos en los archivos nuevos")
+
+# --- FUNCIÓN DE INICIALIZACIÓN CON DETECCIÓN DE ARCHIVOS NUEVOS ---
 def initialize_rag_system():
     """
     Descarga los PDFs, los procesa y los carga en Qdrant.
@@ -137,9 +221,50 @@ def initialize_rag_system():
                 vectors_config=VectorParams(size=768, distance=Distance.COSINE)
             )
         else:
+            # Verificar si hay archivos nuevos
             collection_info = qdrant_client.get_collection(COLLECTION_NAME)
             if collection_info.points_count > 0:
                 print(f"Colección '{COLLECTION_NAME}' ya existe con {collection_info.points_count} puntos")
+                
+                # Verificar si hay archivos nuevos para procesar
+                print("Verificando archivos nuevos...")
+                pdf_files = list_pdf_files_in_folder(DRIVE_FOLDER_ID)
+                
+                # Obtener archivos ya procesados
+                existing_files = set()
+                try:
+                    # Buscar todos los puntos existentes para obtener los nombres de archivos
+                    scroll_result = qdrant_client.scroll(
+                        collection_name=COLLECTION_NAME,
+                        limit=10000,  # Ajustar según necesidades
+                        with_payload=True
+                    )
+                    
+                    for point in scroll_result[0]:
+                        source = point.payload.get("metadata", {}).get("source", "")
+                        if source:
+                            existing_files.add(source)
+                    
+                    print(f"Archivos ya procesados: {len(existing_files)}")
+                    
+                except Exception as e:
+                    print(f"Error obteniendo archivos existentes: {e}")
+                    existing_files = set()
+                
+                # Encontrar archivos nuevos
+                current_files = {pdf['name'] for pdf in pdf_files}
+                new_files = current_files - existing_files
+                
+                if new_files:
+                    print(f"🆕 Archivos nuevos detectados: {len(new_files)}")
+                    for new_file in sorted(new_files):
+                        print(f"  - {new_file}")
+                    
+                    # Procesar solo archivos nuevos
+                    process_new_files(pdf_files, new_files)
+                else:
+                    print("✅ No hay archivos nuevos para procesar")
+                
                 IS_INITIALIZED = True
                 return
         
