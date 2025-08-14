@@ -23,7 +23,7 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 MODEL   = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 
 # ID de la CARPETA de Google Drive (¡DEBES REEMPLAZAR ESTO!)
-DRIVE_FOLDER_ID = "ID_DE_TU_CARPETA_DE_GOOGLE_DRIVE" 
+DRIVE_FOLDER_ID = "16as2spSPhK7027oqYer372k4Cxt_XOyf" 
 
 if API_KEY:
     genai.configure(api_key=API_KEY)
