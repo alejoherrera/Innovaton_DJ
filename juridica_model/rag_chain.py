@@ -1,4 +1,4 @@
-# rag_chain.py (Versión original adaptada para Cloud Run con Qdrant)
+# rag_chain.py (Versión final con manejo robusto de errores)
 from __future__ import annotations
 import os
 import re
@@ -11,14 +11,14 @@ from typing import Any, Dict, List, Tuple, Optional
 # --- Dependencias Clave ---
 import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted
-from langchain_community.document_loaders import PyPDFLoader # Usaremos LangChain para cargar el PDF
-from langchain.text_splitter import RecursiveCharacterTextSplitter # y para dividirlo
+from langchain_community.document_loaders import PyPDFLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 # Qdrant imports
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 
-# Importamos las funciones para descargar desde Drive (import absoluto)
+# Importamos las funciones para descargar desde Drive
 from drive_utils import download_file_from_drive, list_pdf_files_in_folder
 
 # ── Configuración para Cloud Run ────────────────────────────────
@@ -51,15 +51,14 @@ if API_KEY:
     genai.configure(api_key=API_KEY)
 
 # --- Variables Globales y de Estado ---
-# Usaremos una variable global para saber si el sistema ya fue inicializado
 IS_INITIALIZED = False
-_LAST_ACTIVE: Dict[str, str] = {}  # memoria corta del acto activo
+_LAST_ACTIVE: Dict[str, str] = {}
 
 # --- Inicialización del Cliente Qdrant y Modelos ---
 qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 llm = genai.GenerativeModel(MODEL) if API_KEY else None
 
-# --- Función para generar embeddings (reemplaza ChromaDB embedding function) ---
+# --- Función para generar embeddings ---
 def get_embeddings_batch(texts: List[str]) -> List[List[float]]:
     """Genera embeddings usando Gemini para una lista de textos."""
     if not API_KEY:
@@ -78,7 +77,6 @@ def get_embeddings_batch(texts: List[str]) -> List[List[float]]:
                 print(f"Generados {i + 1}/{len(texts)} embeddings...")
         except Exception as e:
             print(f"Error generando embedding para texto {i}: {e}")
-            # Embedding dummy en caso de error
             embeddings.append([0.0] * 768)
     
     return embeddings
@@ -99,7 +97,7 @@ def get_query_embedding(query: str) -> List[float]:
         print(f"Error generando embedding de consulta: {e}")
         return [0.0] * 768
 
-# ── Regex & Claves (Sin cambios) ────────────────────────────────
+# ── Regex & Claves ────────────────────────────────
 RES_RE = re.compile(r"\b\d{4,6}-\d{4}\b")
 INT_RE = re.compile(r"\b[A-Z]{2}-\d{3,4}\b")
 YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
@@ -107,7 +105,7 @@ LIST_RE = re.compile(r"\b(lista|listado|muestr[ae]|mostrar|dame|ens[eñ]a|ensena
 HELLO_RE = re.compile(r"\b(hola|buen[oa]s(?:\s*d[ií]as|\s*tardes|\s*noches)?|saludos|qu[eé] tal)\b", re.I)
 GOODBYE_RE = re.compile(r"\b(ad[ií]os|hasta luego|nos vemos|chao|bye|hasta pronto)\b", re.I)
 COURTESY_RE = re.compile(r"\b(gracias|muchas gracias|perfecto|de acuerdo|entendido)\b", re.I)
-KEYWORDS_RAG = {"resolución","resolucion","acto final","expediente","número interno","numero interno","dj-","pa-","nn","número de resolución","numero de resolución","folio"}
+
 SANCION_KEYS = {
     "despido sin responsabilidad": re.compile(r"despido\s+sin\s+responsabilidad", re.I),
     "despido con responsabilidad": re.compile(r"despido\s+con\s+responsabilidad", re.I),
@@ -118,11 +116,11 @@ SANCION_KEYS = {
     "apercibimiento": re.compile(r"apercibimiento", re.I),
 }
 
-# --- FUNCIÓN DE INICIALIZACIÓN MODIFICADA PARA QDRANT ---
+# --- FUNCIÓN DE INICIALIZACIÓN CON MANEJO ROBUSTO DE ERRORES ---
 def initialize_rag_system():
     """
-    Descarga los PDFs, los procesa y los carga en la base de datos Qdrant.
-    Esta función se ejecuta solo una vez al inicio.
+    Descarga los PDFs, los procesa y los carga en Qdrant.
+    Maneja archivos corruptos/vacíos de forma robusta.
     """
     global IS_INITIALIZED
     print("Iniciando sistema RAG con Qdrant...")
@@ -133,99 +131,127 @@ def initialize_rag_system():
         collection_exists = any(col.name == COLLECTION_NAME for col in collections)
         
         if not collection_exists:
-            # Crear la colección con configuración de vectores
             print(f"Creando colección '{COLLECTION_NAME}' en Qdrant...")
             qdrant_client.create_collection(
                 collection_name=COLLECTION_NAME,
-                vectors_config=VectorParams(
-                    size=768,  # Tamaño del embedding de Gemini
-                    distance=Distance.COSINE
-                )
+                vectors_config=VectorParams(size=768, distance=Distance.COSINE)
             )
         else:
-            # Verificar si ya tiene datos
             collection_info = qdrant_client.get_collection(COLLECTION_NAME)
             if collection_info.points_count > 0:
                 print(f"Colección '{COLLECTION_NAME}' ya existe con {collection_info.points_count} puntos")
                 IS_INITIALIZED = True
                 return
-            else:
-                print(f"Colección '{COLLECTION_NAME}' existe pero está vacía, procediendo a cargar datos...")
         
-        # 2. Listar archivos PDF en la carpeta de Drive
+        # 2. Listar archivos PDF
         pdf_files = list_pdf_files_in_folder(DRIVE_FOLDER_ID)
         if not pdf_files:
-            raise RuntimeError(f"No se encontraron archivos PDF en la carpeta de Drive con ID: {DRIVE_FOLDER_ID}")
+            raise RuntimeError(f"No se encontraron archivos PDF en la carpeta: {DRIVE_FOLDER_ID}")
 
         all_docs = []
         all_metadatas = []
+        processed_files = 0
         
-        # 3. Descargar y procesar cada archivo PDF
+        # 3. Procesar cada archivo con manejo robusto de errores
         for pdf_info in pdf_files:
             pdf_id = pdf_info['id']
             pdf_name = pdf_info['name']
-            print(f"Descargando y procesando: {pdf_name} (ID: {pdf_id})")
+            print(f"Procesando: {pdf_name}")
             
             local_pdf_path = download_file_from_drive(pdf_id, pdf_name)
             if not local_pdf_path:
-                print(f"ADVERTENCIA: No se pudo descargar el archivo {pdf_name}")
+                print(f"⚠️ No se pudo descargar: {pdf_name}")
                 continue
 
-            loader = PyPDFLoader(local_pdf_path)
-            pages = loader.load_and_split()
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=150)
-            docs = text_splitter.split_documents(pages)
+            # Verificar que el archivo existe y no está vacío
+            if not os.path.exists(local_pdf_path):
+                print(f"⚠️ Archivo no existe: {pdf_name}")
+                continue
+                
+            if os.path.getsize(local_pdf_path) == 0:
+                print(f"⚠️ Archivo vacío (0 bytes): {pdf_name}")
+                os.remove(local_pdf_path)
+                continue
             
-            for doc in docs:
-                all_docs.append(doc.page_content)
-                all_metadatas.append({
-                    "source": pdf_name,
-                    "page": doc.metadata.get("page", 0),
-                    "file_id": pdf_id
-                })
-            
-            # Opcional: borrar el archivo descargado para ahorrar espacio en el contenedor
-            os.remove(local_pdf_path)
+            try:
+                # Intentar cargar y procesar el PDF
+                loader = PyPDFLoader(local_pdf_path)
+                pages = loader.load_and_split()
+                
+                if not pages:
+                    print(f"⚠️ No se pudieron extraer páginas: {pdf_name}")
+                    continue
+                
+                text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=150)
+                docs = text_splitter.split_documents(pages)
+                
+                if not docs:
+                    print(f"⚠️ No se pudieron crear chunks: {pdf_name}")
+                    continue
+                
+                # Solo agregar chunks con contenido real
+                valid_chunks = 0
+                for doc in docs:
+                    if doc.page_content.strip():
+                        all_docs.append(doc.page_content)
+                        all_metadatas.append({
+                            "source": pdf_name,
+                            "page": doc.metadata.get("page", 0),
+                            "file_id": pdf_id
+                        })
+                        valid_chunks += 1
+                
+                if valid_chunks > 0:
+                    print(f"✅ {pdf_name}: {valid_chunks} chunks procesados")
+                    processed_files += 1
+                else:
+                    print(f"⚠️ {pdf_name}: sin contenido válido")
+                
+            except Exception as e:
+                print(f"❌ Error procesando {pdf_name}: {e}")
+            finally:
+                # Siempre limpiar el archivo temporal
+                if os.path.exists(local_pdf_path):
+                    os.remove(local_pdf_path)
 
+        # 4. Verificar que tenemos documentos para procesar
         if not all_docs:
-            raise RuntimeError("No se pudo procesar ningún documento PDF.")
+            print("⚠️ No se procesaron documentos válidos, creando colección vacía")
+            IS_INITIALIZED = True
+            return
+        
+        print(f"📊 Resumen: {processed_files} archivos procesados, {len(all_docs)} chunks totales")
 
-        # 4. Generar embeddings para todos los documentos
-        print(f"Generando embeddings para {len(all_docs)} fragmentos...")
+        # 5. Generar embeddings
+        print("Generando embeddings...")
         embeddings = get_embeddings_batch(all_docs)
         
-        # 5. Preparar puntos para Qdrant (equivalente a ChromaDB col.add)
+        # 6. Insertar en Qdrant
         points = []
         for i, (doc, metadata, embedding) in enumerate(zip(all_docs, all_metadatas, embeddings)):
             points.append(
                 PointStruct(
                     id=str(uuid.uuid4()),
                     vector=embedding,
-                    payload={
-                        "document": doc,  # Equivalente al documento en ChromaDB
-                        "metadata": metadata  # Equivalente a metadatas en ChromaDB
-                    }
+                    payload={"document": doc, "metadata": metadata}
                 )
             )
         
-        # 6. Insertar los puntos en Qdrant en lotes (equivalente a ChromaDB col.add)
+        # Insertar en lotes
         batch_size = 100
         for i in range(0, len(points), batch_size):
             batch = points[i:i + batch_size]
-            qdrant_client.upsert(
-                collection_name=COLLECTION_NAME,
-                points=batch
-            )
-            print(f"Insertado lote {i//batch_size + 1}/{(len(points) + batch_size - 1)//batch_size}")
+            qdrant_client.upsert(collection_name=COLLECTION_NAME, points=batch)
+            print(f"Lote {i//batch_size + 1}/{(len(points) + batch_size - 1)//batch_size} insertado")
         
         IS_INITIALIZED = True
-        print("¡Sistema RAG con Qdrant inicializado exitosamente!")
+        print("✅ Sistema RAG inicializado exitosamente!")
         
     except Exception as e:
-        print(f"ERROR FATAL DURANTE LA INICIALIZACIÓN: {e}")
+        print(f"❌ ERROR FATAL DURANTE LA INICIALIZACIÓN: {e}")
         raise e
 
-# ── Helpers (Tu código original sin cambios) ────────────────────────────────
+# ── Helpers ────────────────────────────────
 _norm = lambda s: " ".join((s or "").split())
 
 def _sancion_tipo_simple(texto: str | None, tipo: str | None = None) -> str | None:
@@ -243,7 +269,7 @@ def _table(rows: List[Dict[str, Any]], headers: List[str]) -> str:
     out += [" | ".join(str(r.get(h, "")) for h in headers) for r in rows]
     return "\n".join(out)
 
-# ── Prompt ficha (Tu código original sin cambios) ───────────────────────────
+# ── Prompt ───────────────────────────
 PROMPT_FICHA = (
     "Usted es **Lexi**, asistente virtual de la División Jurídica de la CGR (Costa Rica).\n"
     "Tono claro y profesional. Responda solo con datos presentes en el 'Contexto'.\n\n"
@@ -253,14 +279,11 @@ PROMPT_FICHA = (
 )
 
 build_prompt = lambda **kw: PROMPT_FICHA.format(
-    resol=kw.get("resol") or "desconocido",
-    interno=kw.get("interno") or "desconocido",
-    sancion=kw.get("sancion") or "sin indicios en metadatos",
     context=_norm(kw.get("context")) or "",
     query=_norm(kw.get("query")) or "",
 )
 
-# ── Generación robusta (Tu código original sin cambios) ─────────────────────
+# ── Generación robusta ─────────────────────
 def safe_generate(prompt: str, retries: int = 2) -> str:
     if not llm: return ""
     delay = 2.0
@@ -276,19 +299,16 @@ def safe_generate(prompt: str, retries: int = 2) -> str:
         time.sleep(delay); delay = min(delay*1.8, 10.0)
     return ""
 
-# ── Modo libre (Tu código original sin cambios) ─────────────────────────────
+# ── Mensajes ─────────────────────────────
 MSG_INICIAL = (
     "¡Hola! 👋 Con mucho gusto le ayudo. Para buscar un acto final, indíqueme el "
     "**número de resolución** (p. ej. 07685-2025) o el **número interno** (p. ej. DJ-0612)."
 )
 MSG_DESPEDIDA = "¡Gracias por escribir! Si necesita otra consulta, aquí estaré. 👋"
 
-# ── Router principal (MODIFICADO para Qdrant) ───────────────────
+# ── Router principal ───────────────────
 def answer(query: str, k: int = 10, debug: bool = False):
-    """
-    Función principal que procesa la consulta del usuario.
-    Ahora usa Qdrant en lugar de ChromaDB pero mantiene la misma lógica.
-    """
+    """Función principal que procesa la consulta del usuario."""
     global IS_INITIALIZED
     
     if not IS_INITIALIZED:
@@ -301,19 +321,16 @@ def answer(query: str, k: int = 10, debug: bool = False):
     q = (query or "").strip()
     t = q.lower()
 
-    # --- Lógica de conversación (tu código original sin cambios) ---
+    # Lógica de conversación
     if GOODBYE_RE.search(t): return MSG_DESPEDIDA, []
     if HELLO_RE.search(t): return MSG_INICIAL, []
     if COURTESY_RE.search(t): return "¡Con mucho gusto! ¿Desea consultar alguna resolución o expediente?", []
 
-    # --- Lógica RAG (MODIFICADA para usar Qdrant en lugar de ChromaDB) ---
-    print(f"Realizando consulta a Qdrant con: '{q}'")
+    # Búsqueda en Qdrant
+    print(f"Consultando Qdrant: '{q}'")
     
     try:
-        # Generar embedding para la consulta (equivalente a ChromaDB automático)
         query_embedding = get_query_embedding(q)
-        
-        # Buscar en Qdrant (equivalente a col.query en ChromaDB)
         search_results = qdrant_client.search(
             collection_name=COLLECTION_NAME,
             query_vector=query_embedding,
@@ -321,22 +338,16 @@ def answer(query: str, k: int = 10, debug: bool = False):
             with_payload=True
         )
         
-        # Extraer documentos y metadatos (equivalente a ChromaDB response)
         docs = []
         metas = []
         for result in search_results:
             docs.append(result.payload["document"])
             metas.append(result.payload["metadata"])
-            if debug:
-                print(f"Score: {result.score:.3f}, Source: {result.payload['metadata']['source']}")
 
         if not docs:
             return "No se encontró información relevante en los documentos para su consulta.", []
 
-        # Construimos un contexto simple con los resultados (mismo que antes)
         context = "\n\n---\n\n".join(docs)
-        
-        # Generamos la respuesta final (mismo que antes)
         prompt = build_prompt(context=context, query=q)
         final_response = safe_generate(prompt)
         
@@ -346,8 +357,8 @@ def answer(query: str, k: int = 10, debug: bool = False):
         return final_response, metas
         
     except Exception as e:
-        print(f"Error durante la búsqueda en Qdrant: {e}")
+        print(f"Error durante la búsqueda: {e}")
         return "⚠️ Ocurrió un error durante la búsqueda. Por favor, intente de nuevo.", []
 
-# Export para app.py (mismo que antes)
+# Export para app.py
 __all__ = ["answer", "GOODBYE_RE"]
