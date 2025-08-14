@@ -1,5 +1,6 @@
 # requirements.txt
 google-generativeai          # Gemini generativo
+qdrant-client
 langchain-google-genai       # Wrapper de embeddings de Gemini
 chromadb                     # Vector store local
 google-api-python-client     # Conexión a Drive
