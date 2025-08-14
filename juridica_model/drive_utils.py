@@ -24,7 +24,6 @@ def list_pdf_files_in_folder(folder_id: str) -> list:
     service = _get_drive_service()
     if not service:
         return []
-
     try:
         query = f"'{folder_id}' in parents and mimeType='application/pdf' and trashed=false"
         results = service.files().list(
@@ -45,7 +44,6 @@ def download_file_from_drive(file_id: str, output_filename: str) -> str | None:
     service = _get_drive_service()
     if not service:
         return None
-
     try:
         request = service.files().get_media(fileId=file_id)
         fh = io.BytesIO()
@@ -56,13 +54,21 @@ def download_file_from_drive(file_id: str, output_filename: str) -> str | None:
             status, done = downloader.next_chunk()
             if status:
                 print(f"Descargando '{output_filename}'... {int(status.progress() * 100)}%")
-
-        with open(output_filename, "wb") as f:
+        
+        # CAMBIO PRINCIPAL: Usar /tmp en Cloud Run
+        temp_dir = "/tmp"
+        os.makedirs(temp_dir, exist_ok=True)
+        full_path = os.path.join(temp_dir, output_filename)
+        
+        with open(full_path, "wb") as f:
             f.write(fh.getvalue())
             
-        print(f"Archivo '{output_filename}' descargado exitosamente.")
-        return output_filename
+        print(f"Archivo '{output_filename}' descargado exitosamente en: {full_path}")
+        return full_path
         
     except HttpError as error:
         print(f"Ocurrió un error al descargar el archivo {file_id}: {error}")
+        return None
+    except Exception as e:
+        print(f"Error inesperado: {e}")
         return None
