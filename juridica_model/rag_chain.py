@@ -21,6 +21,15 @@ from qdrant_client.models import Distance, VectorParams, PointStruct
 # Importamos las funciones para descargar desde Drive
 from drive_utils import download_file_from_drive, list_pdf_files_in_folder
 
+# Al inicio de rag_chain.py, después de todos los imports
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    print("✅ Variables .env cargadas")
+except ImportError:
+    print("ℹ️ python-dotenv no instalado, usando variables del sistema")
+
+
 # ── Configuración para Cloud Run ────────────────────────────────
 API_KEY = os.getenv("GEMINI_API_KEY")
 MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
