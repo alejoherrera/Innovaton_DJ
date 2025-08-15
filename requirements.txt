@@ -12,3 +12,4 @@ gradio
 langchain-community
 google-auth
 qdrant-client
+reportlab  
