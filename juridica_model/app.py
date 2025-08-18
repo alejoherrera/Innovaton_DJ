@@ -5,6 +5,7 @@ import gradio as gr
 import os
 from rag_chain import answer, GOODBYE_RE
 from analysis_interface import create_analysis_tab
+from auth_layer import AuthManager
 
 ORG = "#284293"  # azul CGR
 SUGERENCIA_HTML = (
@@ -76,18 +77,38 @@ body, .gradio-container {{ background:white; font-family:'Poppins',sans-serif; }
     background-color: #dee2e6;
     margin: 15px 0;
 }}
+
+/* Estilos para autenticación */
+#auth_code {{ max-width: 300px; margin: 0 auto; }}
 """
 
-def chat_fn(msg, hist):
+# Inicializar el gestor de autenticación
+auth_manager = AuthManager()
+
+def chat_fn(msg, hist, user_code):
+    # Verificar permisos antes de procesar
+    can_query, permission_msg = auth_manager.check_query_permission(user_code)
+    if not can_query:
+        if not hist:
+            hist = []
+        hist.append((msg, f"❌ {permission_msg}"))
+        yield "", hist
+        return
+    
     if not hist:
         hist = [("", "¡Hola! 👋 Soy **Lexi** de la División Jurídica.\nIndíqueme el **número de resolución** (p. ej. 07685-2025) o el **número interno** (p. ej. DJ-0612). También puedo conversar en general.")]
         yield "", hist
+    
     hist.append((msg, "⌛ Consultando…")); yield "", hist
+    
     try:
+        # Registrar la consulta antes de procesarla
+        auth_manager.record_query(user_code)
         resp, _ = answer(msg, k=10)
     except Exception as e:
         print(f"Error en chat_fn: {e}")
         resp = "⚠️ Ocurrió un error procesando su consulta. Por favor, intente de nuevo."
+    
     hist[-1] = (msg, resp); yield "", hist
 
 # Obtener variables de entorno
@@ -96,30 +117,52 @@ QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
 with gr.Blocks(css=CSS, title="RAG | Resoluciones DJ") as demo:
-    with gr.Tabs():
-        # Pestaña original del RAG
-        with gr.TabItem("💬 Consulta RAG"):
-            with gr.Column(elem_id="wrap"):
-                gr.Markdown("<h1 id='title'>RAG&nbsp; |&nbsp; Resoluciones de acto final (DJ)</h1>")
-                chat = gr.Chatbot(type="tuples", elem_id="chatbot")
-                with gr.Row(elem_id="inbox"):
-                    txt = gr.Textbox(placeholder="Escriba su consulta… (p. ej., 07685-2025 o DJ-0612)", show_label=False, lines=1, container=False)
-                gr.HTML(f"<div id='note'>{SUGERENCIA_HTML}</div>")
-                txt.submit(chat_fn, [txt, chat], [txt, chat])
-        
-        # Nueva pestaña de análisis de documentos
-        with gr.TabItem("📄 Análisis de Documento"):
-            if GEMINI_API_KEY and QDRANT_URL and QDRANT_API_KEY:
-                analysis_interface = create_analysis_tab(GEMINI_API_KEY, QDRANT_URL, QDRANT_API_KEY)
-            else:
-                gr.Markdown("""
-                ## ⚠️ Configuración incompleta
-                
-                Para usar el análisis de documentos, asegúrese de que las siguientes variables de entorno estén configuradas:
-                - `GEMINI_API_KEY`
-                - `QDRANT_URL` 
-                - `QDRANT_API_KEY`
-                """)
+    # Estado para almacenar el código de usuario autenticado
+    user_code_state = gr.State(value=None)
+    
+    # Interfaz de autenticación
+    auth_column, code_input, auth_btn, auth_status = auth_manager.create_auth_interface()
+    
+    # Contenido principal (inicialmente oculto)
+    with gr.Column(visible=False) as main_content:
+        with gr.Tabs():
+            # Pestaña original del RAG
+            with gr.TabItem("💬 Consulta RAG"):
+                with gr.Column(elem_id="wrap"):
+                    gr.Markdown("<h1 id='title'>RAG&nbsp; |&nbsp; Resoluciones de acto final (DJ)</h1>")
+                    chat = gr.Chatbot(type="tuples", elem_id="chatbot")
+                    with gr.Row(elem_id="inbox"):
+                        txt = gr.Textbox(placeholder="Escriba su consulta… (p. ej., 07685-2025 o DJ-0612)", show_label=False, lines=1, container=False)
+                    gr.HTML(f"<div id='note'>{SUGERENCIA_HTML}</div>")
+                    txt.submit(chat_fn, [txt, chat, user_code_state], [txt, chat])
+            
+            # Nueva pestaña de análisis de documentos
+            with gr.TabItem("📄 Análisis de Documento"):
+                if GEMINI_API_KEY and QDRANT_URL and QDRANT_API_KEY:
+                    analysis_interface = create_analysis_tab(GEMINI_API_KEY, QDRANT_URL, QDRANT_API_KEY)
+                else:
+                    gr.Markdown("""
+                    ## ⚠️ Configuración incompleta
+                    
+                    Para usar el análisis de documentos, asegúrese de que las siguientes variables de entorno estén configuradas:
+                    - `GEMINI_API_KEY`
+                    - `QDRANT_URL` 
+                    - `QDRANT_API_KEY`
+                    """)
+    
+    # Configurar la autenticación
+    auth_btn.click(
+        fn=auth_manager.authenticate,
+        inputs=[code_input],
+        outputs=[auth_column, main_content, auth_status, user_code_state]
+    )
+    
+    # También permitir autenticación con Enter
+    code_input.submit(
+        fn=auth_manager.authenticate,
+        inputs=[code_input],
+        outputs=[auth_column, main_content, auth_status, user_code_state]
+    )
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", pwa=True,server_port=int(os.environ.get('PORT', 8080)))
+    demo.launch(server_name="0.0.0.0", pwa=True, server_port=int(os.environ.get('PORT', 8080)))
