@@ -9,9 +9,9 @@ from auth_layer import AuthManager
 
 ORG = "#284293"  # azul CGR
 SUGERENCIA_HTML = (
-    "Sugerencia: también puede pedir "
-    "lista de resoluciones 2024 o "
-    "lista con despido sin responsabilidad."
+    "Sugerencia: Puedes pedir "
+    "Dame las sanciones por no presentación de declaraciones "
+    "Dame las razones de sanción más frecuentes"
 )
 
 CSS = f"""
@@ -96,7 +96,7 @@ def chat_fn(msg, hist, user_code):
         return
     
     if not hist:
-        hist = [("", "¡Hola! 👋 Soy **Lexi** de la División Jurídica.\nIndíqueme el **número de resolución** (p. ej. 07685-2025) o el **número interno** (p. ej. DJ-0612). También puedo conversar en general.")]
+        hist = [("", "¡Hola! 👋 Soy **Lexi** de la División Jurídica.\nIndíqueme por ejemplo cuáles resoluciones hay contra Carlos Francisco Soto. También puedo conversar en general.")]
         yield "", hist
     
     hist.append((msg, "⌛ Consultando…")); yield "", hist
@@ -132,7 +132,7 @@ with gr.Blocks(css=CSS, title="RAG | Resoluciones DJ") as demo:
                     gr.Markdown("<h1 id='title'>RAG&nbsp; |&nbsp; Resoluciones de acto final (DJ)</h1>")
                     chat = gr.Chatbot(type="tuples", elem_id="chatbot")
                     with gr.Row(elem_id="inbox"):
-                        txt = gr.Textbox(placeholder="Escriba su consulta… (p. ej., 07685-2025 o DJ-0612)", show_label=False, lines=1, container=False)
+                        txt = gr.Textbox(placeholder="Escriba su consulta… (p. ej., cuáles resoluciones hay contra Carlos Francisco Soto)", show_label=False, lines=1, container=False)
                     gr.HTML(f"<div id='note'>{SUGERENCIA_HTML}</div>")
                     txt.submit(chat_fn, [txt, chat, user_code_state], [txt, chat])
             
